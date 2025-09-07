@@ -1,0 +1,38 @@
+{
+  "name": "otsec-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OT Security - Water demo backend (Week 1)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.16.3",
+    "pino": "^9.9.4",
+    "ws": "^8.18.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.11",
+    "@types/node-fetch": "^2.6.11",
+    "@types/ws": "^8.5.10",
+    "nodemon": "^3.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "license": "MIT",
+  "keywords": [],
+  "author": ""
+}
