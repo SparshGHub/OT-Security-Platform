@@ -1,6 +1,6 @@
 import type { COE } from './coe';
 
-// Simple in-memory reputation lists (persist later if needed)
+// Simple in-memory reputation (expand later if needed)
 const knownBad = new Set<string>();                    // key: src_ip
 const knownGood = new Set<string>();                   // key: `${src_ip}|${resource}`
 const key = (ip?: string, res?: string) => (ip && res) ? `${ip}|${res}` : '';
@@ -13,21 +13,37 @@ export function repDecision(evt: COE) {
   return null;
 }
 
-// Week-1 policies for water demo
+// === Thermal Power Plant critical points ===
+const DRUM_LVL_SP = 'reg:41010';        // Boiler drum level setpoint (%)
+const TURB_LOAD_SP = 'reg:42001';       // Turbine load setpoint (MW)
+const DRUM_BASELINE = 50.0;             // demo baseline (%)
+const DRUM_DELTA = 5.0;                 // threshold (%)
+const LOAD_NOMINAL = 200.0;             // demo nominal (MW)
+const LOAD_DELTA = 10.0;                // threshold (MW)
+
 export function policyDecision(evt: COE) {
-  // P1: Only HMI may write chlorine setpoint (reg:40012)
-  if (evt.protocol === 'modbus' && evt.verb === 'write_register' && evt.resource === 'reg:40012') {
-    if ((evt.src.role || '').toUpperCase() !== 'HMI') {
-      return { decision: 'BLOCK' as const, reason: 'Only HMI may write chlorine setpoint' };
+  // P1: Only BOILER-HMI may write Drum Level SP
+  if (evt.protocol === 'modbus' && evt.verb === 'write_register' && evt.resource === DRUM_LVL_SP) {
+    if ((evt.src.role || '').toUpperCase() !== 'BOILER-HMI') {
+      return { decision: 'BLOCK' as const, reason: 'Only BOILER-HMI may write Drum Level SP' };
     }
-  }
-  // P2: Large jump > 0.2 is suspicious (baseline ~2.0 for demo)
-  if (evt.protocol === 'modbus' && evt.verb === 'write_register' && evt.resource === 'reg:40012') {
     const v = typeof evt.value === 'number' ? evt.value : null;
-    if (v !== null && Math.abs(v - 2.0) > 0.2) {
-      return { decision: 'ALERT' as const, reason: 'Large setpoint change Δ>0.2' };
+    if (v !== null && Math.abs(v - DRUM_BASELINE) > DRUM_DELTA) {
+      return { decision: 'ALERT' as const, reason: `Large Drum Level SP change Δ>${DRUM_DELTA}%` };
     }
   }
+
+  // P3/P4: Turbine Load SP controls
+  if (evt.protocol === 'modbus' && evt.verb === 'write_register' && evt.resource === TURB_LOAD_SP) {
+    if ((evt.src.role || '').toUpperCase() !== 'TCS-HMI') {
+      return { decision: 'BLOCK' as const, reason: 'Only TCS-HMI may write Turbine Load SP' };
+    }
+    const v = typeof evt.value === 'number' ? evt.value : null;
+    if (v !== null && Math.abs(v - LOAD_NOMINAL) > LOAD_DELTA) {
+      return { decision: 'ALERT' as const, reason: `Large Turbine Load SP change Δ>${LOAD_DELTA} MW` };
+    }
+  }
+
   return null;
 }
 
