@@ -1,0 +1,93 @@
+INSTRUCTIONS
+
+	-> git clone https://github.com/TommyShelbyOBE03/OT-Security-Platform.git 
+
+	-> cd otsec  
+
+
+
+Build (Docker): 
+
+	-> docker compose -f infra/docker-compose.yml build --no-cache  
+
+	-> docker compose -f infra/docker-compose.yml up -d postgres backend frontend  
+
+ 
+
+Verify: 
+
+	-> docker compose -f infra/docker-compose.yml ps  
+
+	-> docker compose -f infra/docker-compose.yml logs --tail=50 backend  
+
+	-> docker compose -f infra/docker-compose.yml logs --tail=50 frontend  
+
+
+
+Open: 
+
+UI (Frontend): http://localhost:5173 
+
+API (Backend): http://localhost:8080/alerts 
+
+ 
+
+Drum level setpoint from EWS role -> expected BLOCK 
+
+	-> curl -s -X POST http://localhost:8080/simulate/modbus-write-drum -H 'Content-Type: application/json' -d '{"value":55.0,"src_role":"EWS"}' 
+
+Turbine load setpoint from TCS-HMI role with jump -> expected ALERT 
+
+	-> curl -s -X POST http://localhost:8080/simulate/modbus-write-load -H 'Content-Type: application/json' -d '{"value":215,"src_role":"TCS-HMI"}' 
+
+ 
+
+Status & logs :
+
+	-> docker compose -f infra/docker-compose.yml ps  
+
+	-> docker compose -f infra/docker-compose.yml logs -f backend  
+
+	-> docker compose -f infra/docker-compose.yml logs -f frontend 
+
+
+
+Rebuild after backend changes: 
+
+	-> docker compose -f infra/docker-compose.yml build backend  
+
+	-> docker compose -f infra/docker-compose.yml up -d backend 
+
+
+
+Rebuild after frontend changes 
+
+	-> docker compose -f infra/docker-compose.yml build frontend  
+
+	-> docker compose -f infra/docker-compose.yml up -d frontend 
+
+
+
+Stop services (keep state) 
+
+	-> docker compose -f infra/docker-compose.yml stop 
+
+
+
+Start previously stopped services 
+
+	-> docker compose -f infra/docker-compose.yml start 
+
+
+
+Remove containers & network (keeps DB data volume) 
+
+	-> docker compose -f infra/docker-compose.yml down 
+
+
+
+Full wipe (removes DB volume/data!) 
+
+	-> docker compose -f infra/docker-compose.yml down -v 
+
+ 
