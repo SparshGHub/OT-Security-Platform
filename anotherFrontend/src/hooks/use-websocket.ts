@@ -5,110 +5,133 @@ import type { WebSocketMessage } from '@/lib/types';
 
 export type WebSocketStatus = 'connecting' | 'open' | 'closed';
 
-const getWebSocketUrl = (): string => {
-  if (typeof window === 'undefined') {
-    // This should not happen in a client-side hook, but as a fallback.
-    return '';
-  }
+const WS_PATH = '/live';
+const MAX_RECONNECT_DELAY = 30000; // 30s max
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE;
-  if (!apiBaseUrl) {
-    console.error('NEXT_PUBLIC_API_BASE is not set. WebSocket cannot connect.');
-    return '';
+function resolveApiBase(): string {
+  // Prefer build-time env
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE;
+  if (fromEnv) return fromEnv;
+
+  // Fallback: same host, backend on 8080
+  if (typeof window !== 'undefined') {
+    const proto = window.location.protocol; // http: | https:
+    const host = window.location.hostname;  // e.g. localhost
+    const port = 8080;
+    return `${proto}//${host}:${port}`;
   }
-  
+  return 'http://localhost:8080'; // SSR fallback (shouldn’t be used)
+}
+
+function toWsUrl(apiBase: string): string {
   try {
-    const url = new URL(apiBaseUrl);
-    const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${url.host}/live`;
-  } catch (e) {
-    console.error('Invalid NEXT_PUBLIC_API_BASE URL for WebSocket:', apiBaseUrl);
-    return '';
+    const u = new URL(apiBase);
+    const wsProto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProto}//${u.host}${WS_PATH}`;
+  } catch {
+    // last resort
+    return apiBase.replace(/^http/i, 'ws') + WS_PATH;
   }
-};
+}
 
-const MAX_RECONNECT_DELAY = 10000; // 10 seconds
-
-export const useWebSocket = (
-  onMessage: (data: any) => void,
-) => {
+export const useWebSocket = (onMessage: (data: any) => void) => {
   const [status, setStatus] = useState<WebSocketStatus>('connecting');
   const ws = useRef<WebSocket | null>(null);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempts = useRef(0);
+  const mounted = useRef(true);
+
+  // Keep the message handler stable
+  const handlerRef = useRef(onMessage);
+  useEffect(() => { handlerRef.current = onMessage; }, [onMessage]);
 
   const connect = useCallback(() => {
-    const wsUrl = getWebSocketUrl();
+    if (!mounted.current) return;
+
+    const wsUrl = toWsUrl(resolveApiBase());
     if (!wsUrl) {
       setStatus('closed');
       return;
     }
 
-    setStatus('connecting');
-    
+    // Already have a socket that’s OPEN or CONNECTING? Don’t create another.
     if (ws.current && (ws.current.readyState === WebSocket.OPEN || ws.current.readyState === WebSocket.CONNECTING)) {
-        ws.current.close();
+      return;
     }
 
+    setStatus('connecting');
     try {
-      ws.current = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl);
+      ws.current = socket;
 
-      ws.current.onopen = () => {
-        console.log('WebSocket connected');
+      socket.onopen = () => {
+        if (!mounted.current) return;
+        reconnectAttempts.current = 0;
         setStatus('open');
-        reconnectAttempts.current = 0; // Reset on successful connection
+        // console.debug('WS connected:', wsUrl);
       };
 
-      ws.current.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (!mounted.current) return;
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          if (message.type === 'alert') {
-            onMessage(message.data);
+          const msg: WebSocketMessage = JSON.parse(event.data);
+          if ((msg as any)?.type === 'alert') {
+            handlerRef.current((msg as any).data);
           }
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+        } catch {
+          // ignore bad payloads
         }
       };
 
-      ws.current.onclose = () => {
-        console.log('WebSocket disconnected');
+      socket.onclose = () => {
+        if (!mounted.current) return;
         setStatus('closed');
-        
-        if (reconnectTimeout.current) {
-          clearTimeout(reconnectTimeout.current);
-        }
+        // Exponential backoff with jitter
+        reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 10);
+        const base = Math.min(1000 * 2 ** reconnectAttempts.current, MAX_RECONNECT_DELAY);
+        const jitter = Math.random() * 500;
+        const delay = Math.round(base + jitter);
 
-        const delay = Math.min(MAX_RECONNECT_DELAY, 1000 * Math.pow(2, reconnectAttempts.current));
-        reconnectAttempts.current += 1;
-        
-        console.log(`Attempting to reconnect in ${delay / 1000}s...`);
-        reconnectTimeout.current = setTimeout(connect, delay);
+        if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = setTimeout(() => {
+          reconnectTimer.current = null;
+          connect();
+        }, delay);
       };
 
-      ws.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        ws.current?.close();
+      socket.onerror = () => {
+        // Don’t call close() here; let onclose drive reconnection.
+        // console.warn('WS error');
       };
-    } catch(e) {
-      console.error("Failed to create websocket", e);
+    } catch (e) {
       setStatus('closed');
+      // Try again later
+      reconnectAttempts.current = Math.min(reconnectAttempts.current + 1, 10);
+      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, MAX_RECONNECT_DELAY);
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = setTimeout(() => {
+        reconnectTimer.current = null;
+        connect();
+      }, delay);
     }
-  }, [onMessage]);
+  }, []);
 
   useEffect(() => {
+    mounted.current = true;
     connect();
-
     return () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
+      mounted.current = false;
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
       }
       if (ws.current) {
-        ws.current.onclose = null; // Prevent reconnect logic on unmount
-        ws.current.close();
+        try { ws.current.close(); } catch {}
+        ws.current = null;
       }
+      setStatus('closed');
     };
   }, [connect]);
 
   return status;
 };
-
