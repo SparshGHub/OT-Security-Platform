@@ -18,9 +18,10 @@ const DRUM_LVL_SP = 'reg:41010';        // Boiler drum level setpoint (%)
 const TURB_LOAD_SP = 'reg:42001';       // Turbine load setpoint (MW)
 const DRUM_BASELINE = 50.0;             // demo baseline (%)
 const DRUM_DELTA = 5.0;                 // threshold (%)
+const DRUM_DELTA_HIGH = 10.0;		// Threshold for HIGH alert
 const LOAD_NOMINAL = 200.0;             // demo nominal (MW)
-const LOAD_DELTA = 10.0;                // threshold (MW)
-
+const LOAD_DELTA = 2.0;                // threshold (MW)
+const LOAD_DELTA_HIGH = 10.0;		//Threshold for HIGH alert
 export function policyDecision(evt: COE) {
   // P1: Only BOILER-HMI may write Drum Level SP
   if (evt.protocol === 'modbus' && evt.verb === 'write_register' && evt.resource === DRUM_LVL_SP) {
@@ -28,8 +29,13 @@ export function policyDecision(evt: COE) {
       return { decision: 'BLOCK' as const, reason: 'Only BOILER-HMI may write Drum Level SP' };
     }
     const v = typeof evt.value === 'number' ? evt.value : null;
-    if (v !== null && Math.abs(v - DRUM_BASELINE) > DRUM_DELTA) {
-      return { decision: 'ALERT' as const, reason: `Large Drum Level SP change Δ>${DRUM_DELTA}%` };
+    if (v !== null && (Math.abs(v - DRUM_BASELINE) > DRUM_DELTA) && (Math.abs(v - DRUM_BASELINE) < DRUM_DELTA_HIGH)) {
+      const reason =  'Large Drum Level SP change Δ > ' + DRUM_DELTA + '%'; 
+      return { decision: 'ALERT' as const, reason};
+    }
+    if (v !== null && Math.abs(v - DRUM_BASELINE) > DRUM_DELTA_HIGH){
+      const reason = 'CRITICALLY high change made in DRUM Level SP; Change : Δ > ' + DRUM_DELTA_HIGH +'%';
+      return {decision : 'BLOCK' as const, reason};	
     }
   }
 
@@ -39,8 +45,13 @@ export function policyDecision(evt: COE) {
       return { decision: 'BLOCK' as const, reason: 'Only TCS-HMI may write Turbine Load SP' };
     }
     const v = typeof evt.value === 'number' ? evt.value : null;
-    if (v !== null && Math.abs(v - LOAD_NOMINAL) > LOAD_DELTA) {
-      return { decision: 'ALERT' as const, reason: `Large Turbine Load SP change Δ>${LOAD_DELTA} MW` };
+    if (v !== null && (Math.abs(v - LOAD_NOMINAL) > LOAD_DELTA) && (Math.abs(v - LOAD_NOMINAL) < LOAD_DELTA_HIGH)) {
+      const reason = 'Large Turbine Load SP change > Δ' + LOAD_DELTA + 'MW';
+      return { decision: 'ALERT' as const, reason};
+    }
+    if(v !== null && (Math.abs(v - LOAD_NOMINAL) > LOAD_DELTA_HIGH)){
+      const reason = 'CRITICALLY high change made in Turbine Load SP; Change : Δ > ' + LOAD_DELTA_HIGH + 'MW';
+      return {decision : 'BLOCK' as const, reason};
     }
   }
 
