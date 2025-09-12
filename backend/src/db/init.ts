@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   site_id TEXT NOT NULL,
   first_ts TIMESTAMPTZ NOT NULL,
   last_ts TIMESTAMPTZ NOT NULL,
-  resource TEXT,
+  resource TEXT NOT NULL,
   decision TEXT NOT NULL,
   severity TEXT NOT NULL,
   reason TEXT NOT NULL,
@@ -31,6 +31,19 @@ CREATE TABLE IF NOT EXISTS alerts (
   count INT NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_site_last ON alerts(site_id, last_ts);
+
+/* NEW: one row per (site, resource, decision, severity) */
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND indexname = 'uk_alerts_site_res_dec_sev'
+  ) THEN
+    CREATE UNIQUE INDEX uk_alerts_site_res_dec_sev
+      ON alerts(site_id, resource, decision, severity);
+  END IF;
+END $$;
 `;
 
 export async function ensureSchema() {
